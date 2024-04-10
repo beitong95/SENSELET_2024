@@ -13,24 +13,59 @@ import subprocess
 thread_print_lock = Lock()
 
 # publish or debug
-mode="publish"
-#mode="debug"
-
+# mode="publish"
+mode="debug"
 
 # setup watchdog
 fd = open("/dev/watchdog", "w")
 print(fd)
+def cleanup_watchdog():
+    global fd
+    fd.write("V")
+    fd.close()
+    print("watch dog stop")
 
 # setup mqtt client and mqtt function
 def on_publish(client,userdata,result):
     pass
-broker="xxx.xxx.xxx.xxx"
+broker="130.126.137.48"
 port=1883
-raspberrypi_id = 1
-client = paho.Client("control" + str(raspberrypi_id))
+
+
+def get_mac_address(interface="wlan0"):
+    try:
+        with open(f"/sys/class/net/{interface}/address") as f:
+            mac = f.read().strip()
+        return mac
+    except FileNotFoundError:
+        sys.exit(f"Network interface {interface} not found. Exiting the program.")
+
+raspberrypi_id = get_mac_address("wlan0")  # Use "eth0" for Ethernet connection
+print(raspberrypi_id)
+
+client = paho.Client("control_" + str(raspberrypi_id))
 client.on_publish = on_publish
-client.connect(broker,port)
-client.loop_start()
+
+def connect_to_broker(client, broker, port, retry_interval=5, max_retries=5):
+    retry_count = 0
+    while retry_count < max_retries:
+        try:
+            client.connect(broker, port)
+            print("Connected to MQTT Broker!")
+            client.loop_start()
+            return  # Exit function after successful connection
+        except Exception as e:
+            print(f"Failed to connect to MQTT Broker: {e}")
+            print(f"Retrying in {retry_interval} seconds...")
+            time.sleep(retry_interval)
+            retry_count += 1
+
+    print("Could not connect to the MQTT Broker after several attempts.")
+    cleanup_watchdog()
+    sys.exit("Exiting the program due to connection failures.")  # Exit the program
+
+# Call the connect function
+connect_to_broker(client, broker, port)
 
 #global var
 stationTXByte_old = 0
@@ -615,6 +650,4 @@ def main():
 
 if __name__ == '__main__':
    main()
-   fd.write("V")
-   fd.close()
-   print("watch dog stop")
+   cleanup_watchdog()
